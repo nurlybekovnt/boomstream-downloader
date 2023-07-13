@@ -256,14 +256,17 @@ function toBuffer(arrayBuffer) {
     return buffer;
 }
 
-const urlFormat = 'media-{0}.ts';
-const totalChunks = 5;
-const keyHex = '706d6e725546546174484b745461414d';
-const ivHex = '424f5752543679716f336c7464395272';
-const resultFilePath = 'output.ts';
+if (process.argv.length < 8) {
+    console.log('Usage: node index.js <url-format> <key> <iv> <start> <end> <output-file-path>');
+    return;
+}
 
-const key = Uint8Array.from(Buffer.from(keyHex, 'hex'));
-const iv = Uint8Array.from(Buffer.from(ivHex, 'hex'));
+const urlFormat = process.argv[2];
+const key = Uint8Array.from(Buffer.from(process.argv[3], 'hex'));
+const iv = Uint8Array.from(Buffer.from(process.argv[4], 'hex'));
+const start = parseInt(process.argv[5]);
+const end = parseInt(process.argv[6]);
+const resultFilePath = process.argv[7];
 
 let decrypter = new Decrypter({
     enableSoftwareAES: true
@@ -271,22 +274,27 @@ let decrypter = new Decrypter({
 let decryptedChunks = [];
 
 const progressBar = new cliProgress.SingleBar();
-progressBar.start(totalChunks, 1);
+progressBar.start(end, start);
 
-for (let i = 1; i <= totalChunks; i++) {
-    progressBar.update(i);
+let i = start;
+try {
+    for (; i <= end; i++) {
+        progressBar.update(i);
 
-    const response = request('GET', urlFormat.replace('{0}', i));
-    if (response.statusCode !== 200) {
-        console.log("status code:", response.statusCode);
-        break;
+        const response = request('GET', urlFormat.replace('{0}', i));
+        if (response.statusCode !== 200) {
+            console.log("status code:", response.statusCode);
+            break;
+        }
+
+        const encrypted = response.getBody();
+        const decrypted = decrypter.softwareDecrypt(encrypted, key.buffer, iv.buffer);
+        if (decrypted !== null) {
+            decryptedChunks.push(toBuffer(decrypted));
+        }
     }
-
-    const encrypted = response.getBody();
-    const decrypted = decrypter.softwareDecrypt(encrypted, key.buffer, iv.buffer);
-    if (decrypted !== null) {
-        decryptedChunks.push(toBuffer(decrypted));
-    }
+} catch (e) {
+    console.log("current chunk:", i, ", error:", e);
 }
 
 decryptedChunks.push(decrypter.flush());
